@@ -2,6 +2,13 @@
 
 BASE_URL="https://api.dotycat.com"
 
+# Support:
+# sh doty.sh SECRET_ID @telegram
+# sh doty.sh -- SECRET_ID @telegram
+if [ "$1" = "--" ]; then
+  shift
+fi
+
 SECRET_ID="$1"
 TELEGRAM_USERNAME="$2"
 
@@ -61,9 +68,9 @@ urlencode() {
 RAW_DEVICE_ID="$(get_device_id | tr 'A-Z' 'a-z' | tr -d ' \n\r')"
 
 if command -v md5sum >/dev/null 2>&1; then
-  DEVICE_ID="$(echo -n "$RAW_DEVICE_ID" | md5sum | awk '{print $1}')"
+  DEVICE_ID="$(printf "%s" "$RAW_DEVICE_ID" | md5sum | awk '{print $1}')"
 elif command -v sha256sum >/dev/null 2>&1; then
-  DEVICE_ID="$(echo -n "$RAW_DEVICE_ID" | sha256sum | awk '{print $1}')"
+  DEVICE_ID="$(printf "%s" "$RAW_DEVICE_ID" | sha256sum | awk '{print $1}')"
 else
   DEVICE_ID="$RAW_DEVICE_ID"
 fi
@@ -78,6 +85,8 @@ ENC_HOSTNAME="$(urlencode "$HOSTNAME")"
 ENC_MODEL="$(urlencode "$MODEL")"
 ENC_FIRMWARE="$(urlencode "$FIRMWARE")"
 ENC_TELEGRAM_USERNAME="$(urlencode "$TELEGRAM_USERNAME")"
+
+echo "Encoded Device ID: $DEVICE_ID"
 
 api_log() {
   ACTION="$(urlencode "$1")"
@@ -104,7 +113,11 @@ if grep -q '"ok":true' "$REGISTER_JSON"; then
   echo "Device registration sent to server: success"
 else
   echo "Device registration sent to server: failed"
+  echo "Server response:"
   cat "$REGISTER_JSON"
+  echo ""
+  api_log "register_failed" "Device registration failed"
+  exit 1
 fi
 
 CHECK_URL="$BASE_URL/api/check?device_id=$ENC_DEVICE_ID&secret_id=$ENC_SECRET_ID&hostname=$ENC_HOSTNAME&model=$ENC_MODEL&firmware=$ENC_FIRMWARE&telegram_username=$ENC_TELEGRAM_USERNAME"
@@ -113,40 +126,64 @@ wget -qO "$CHECK_JSON" "$CHECK_URL"
 
 if ! grep -q '"ok":true' "$CHECK_JSON"; then
 
-  if grep -q '"error":"device_not_approved"' "$CHECK_JSON"; then
+  if grep -q 'device_not_approved' "$CHECK_JSON" || grep -q 'Device not approved' "$CHECK_JSON" || grep -q 'unregistered' "$CHECK_JSON"; then
     echo "Device not approved."
     echo "Encoded Device ID: $DEVICE_ID"
     echo "Please ask admin to approve this device."
     echo "Telegram admin: @anzclan"
+    echo "Server response:"
+    cat "$CHECK_JSON"
+    echo ""
     api_log "device_not_approved" "Device needs admin approval"
     exit 1
   fi
 
-  if grep -q '"error":"invalid_secret_id"' "$CHECK_JSON"; then
+  if grep -q 'invalid_secret_id' "$CHECK_JSON" || grep -q 'Invalid Secret ID' "$CHECK_JSON"; then
     echo "Invalid Secret ID."
     echo "Please check your SECRET_ID."
     echo "Telegram admin: @anzclan"
+    echo "Server response:"
+    cat "$CHECK_JSON"
+    echo ""
     api_log "invalid_secret_id" "Invalid Secret ID"
+    exit 1
+  fi
+
+  if grep -q 'missing_parameter' "$CHECK_JSON" || grep -q 'device_id and secret_id required' "$CHECK_JSON"; then
+    echo "Missing parameter."
+    echo "Please check SECRET_ID and device ID."
+    echo "Telegram admin: @anzclan"
+    echo "Server response:"
+    cat "$CHECK_JSON"
+    echo ""
+    api_log "missing_parameter" "Missing parameter"
     exit 1
   fi
 
   echo "Unknown API error."
   echo "Telegram admin: @anzclan"
+  echo "Server response:"
   cat "$CHECK_JSON"
+  echo ""
   api_log "upgrade_denied" "Unknown check failed"
   exit 1
 fi
+
+echo "Device approved."
+echo "Secret ID valid."
 
 DOWNLOAD_URL="$BASE_URL/api/download?device_id=$ENC_DEVICE_ID&secret_id=$ENC_SECRET_ID"
 
 api_log "download_start" "Downloading firmware"
 
 wget -O "$TMP_BIN" "$DOWNLOAD_URL" || {
+  echo "Download failed."
   api_log "download_failed" "wget failed"
   exit 1
 }
 
 if [ ! -s "$TMP_BIN" ]; then
+  echo "Download failed. Empty firmware file."
   api_log "download_failed" "empty file"
   exit 1
 fi
@@ -154,6 +191,7 @@ fi
 api_log "download_complete" "Firmware downloaded"
 
 if command -v sysupgrade >/dev/null 2>&1; then
+  echo "Starting sysupgrade..."
   api_log "sysupgrade_start" "Running sysupgrade"
   sysupgrade "$TMP_BIN"
 else
