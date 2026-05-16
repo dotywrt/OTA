@@ -58,7 +58,16 @@ urlencode() {
     -e 's/+/%2B/g'
 }
 
-DEVICE_ID="$(get_device_id | tr 'A-Z' 'a-z' | tr -d ' \n\r')"
+RAW_DEVICE_ID="$(get_device_id | tr 'A-Z' 'a-z' | tr -d ' \n\r')"
+
+if command -v md5sum >/dev/null 2>&1; then
+  DEVICE_ID="$(echo -n "$RAW_DEVICE_ID" | md5sum | awk '{print $1}')"
+elif command -v sha256sum >/dev/null 2>&1; then
+  DEVICE_ID="$(echo -n "$RAW_DEVICE_ID" | sha256sum | awk '{print $1}')"
+else
+  DEVICE_ID="$RAW_DEVICE_ID"
+fi
+
 HOSTNAME="$(hostname 2>/dev/null | tr -d '\n\r')"
 MODEL="$(cat /tmp/sysinfo/model 2>/dev/null | tr -d '\n\r')"
 FIRMWARE="$(cat /etc/openwrt_release 2>/dev/null | grep DISTRIB_RELEASE | cut -d\' -f2 | tr -d '\n\r')"
@@ -74,9 +83,15 @@ api_log() {
   ACTION="$(urlencode "$1")"
   MESSAGE="$(urlencode "$2")"
 
-  wget -qO- \
+  RESPONSE="$(wget -qO- \
     --post-data="device_id=$ENC_DEVICE_ID&secret_id=$ENC_SECRET_ID&action=$ACTION&message=$MESSAGE" \
-    "$BASE_URL/api/log" >/dev/null 2>&1
+    "$BASE_URL/api/log" 2>/dev/null)"
+
+  if echo "$RESPONSE" | grep -q '"ok":true'; then
+    echo "Log sent to server: success"
+  else
+    echo "Log sent to server: failed"
+  fi
 }
 
 api_log "install" "Script started"
@@ -98,7 +113,7 @@ wget -qO "$CHECK_JSON" "$CHECK_URL"
 
 if ! grep -q '"ok":true' "$CHECK_JSON"; then
   echo "Device not approved or invalid firmware."
-  echo "Device ID: $DEVICE_ID"
+  echo "Encoded Device ID: $DEVICE_ID"
   cat "$CHECK_JSON"
   api_log "upgrade_denied" "Check failed"
   exit 1
