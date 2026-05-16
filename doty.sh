@@ -1,10 +1,7 @@
 #!/bin/sh
 
 BASE_URL="https://api.dotycat.com"
-
-# Support:
-# sh doty.sh SECRET_ID @telegram
-# sh doty.sh -- SECRET_ID @telegram
+ 
 if [ "$1" = "--" ]; then
   shift
 fi
