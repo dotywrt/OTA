@@ -112,10 +112,28 @@ CHECK_URL="$BASE_URL/api/check?device_id=$ENC_DEVICE_ID&secret_id=$ENC_SECRET_ID
 wget -qO "$CHECK_JSON" "$CHECK_URL"
 
 if ! grep -q '"ok":true' "$CHECK_JSON"; then
-  echo "Device not approved or invalid firmware."
-  echo "Encoded Device ID: $DEVICE_ID"
+
+  if grep -q '"error":"device_not_approved"' "$CHECK_JSON"; then
+    echo "Device not approved."
+    echo "Encoded Device ID: $DEVICE_ID"
+    echo "Please ask admin to approve this device."
+    echo "Telegram admin: @anzclan"
+    api_log "device_not_approved" "Device needs admin approval"
+    exit 1
+  fi
+
+  if grep -q '"error":"invalid_secret_id"' "$CHECK_JSON"; then
+    echo "Invalid Secret ID."
+    echo "Please check your SECRET_ID."
+    echo "Telegram admin: @anzclan"
+    api_log "invalid_secret_id" "Invalid Secret ID"
+    exit 1
+  fi
+
+  echo "Unknown API error."
+  echo "Telegram admin: @anzclan"
   cat "$CHECK_JSON"
-  api_log "upgrade_denied" "Check failed"
+  api_log "upgrade_denied" "Unknown check failed"
   exit 1
 fi
 
