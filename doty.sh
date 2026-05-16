@@ -85,6 +85,13 @@ wget -qO "$REGISTER_JSON" \
   --post-data="device_id=$ENC_DEVICE_ID&hostname=$ENC_HOSTNAME&model=$ENC_MODEL&firmware=$ENC_FIRMWARE&telegram_username=$ENC_TELEGRAM_USERNAME" \
   "$BASE_URL/api/register-device"
 
+if grep -q '"ok":true' "$REGISTER_JSON"; then
+  echo "Device registration sent to server: success"
+else
+  echo "Device registration sent to server: failed"
+  cat "$REGISTER_JSON"
+fi
+
 CHECK_URL="$BASE_URL/api/check?device_id=$ENC_DEVICE_ID&secret_id=$ENC_SECRET_ID&hostname=$ENC_HOSTNAME&model=$ENC_MODEL&firmware=$ENC_FIRMWARE&telegram_username=$ENC_TELEGRAM_USERNAME"
 
 wget -qO "$CHECK_JSON" "$CHECK_URL"
