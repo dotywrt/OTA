@@ -13,13 +13,28 @@ CHECK_JSON="/tmp/ota_check.json"
 [ -z "$TELEGRAM_USERNAME" ] && echo "TELEGRAM_USERNAME required. Example: @username" && exit 1
 
 get_device_id() {
-  if [ -f /etc/machine-id ]; then
-    cat /etc/machine-id
+  if [ -f /sys/class/net/br-lan/address ]; then
+    cat /sys/class/net/br-lan/address
     return
   fi
 
-  if [ -f /proc/sys/kernel/hostname ]; then
-    cat /proc/sys/kernel/hostname
+  if [ -f /sys/class/net/eth0/address ]; then
+    cat /sys/class/net/eth0/address
+    return
+  fi
+
+  if [ -f /sys/class/net/wan/address ]; then
+    cat /sys/class/net/wan/address
+    return
+  fi
+
+  if [ -f /sys/class/ieee80211/phy0/macaddress ]; then
+    cat /sys/class/ieee80211/phy0/macaddress
+    return
+  fi
+
+  if command -v ip >/dev/null 2>&1; then
+    ip link | awk '/link\/ether/ {print $2; exit}'
     return
   fi
 
@@ -43,7 +58,7 @@ urlencode() {
     -e 's/+/%2B/g'
 }
 
-DEVICE_ID="$(get_device_id | tr -d ' \n\r')"
+DEVICE_ID="$(get_device_id | tr 'A-Z' 'a-z' | tr -d ' \n\r')"
 HOSTNAME="$(hostname 2>/dev/null | tr -d '\n\r')"
 MODEL="$(cat /tmp/sysinfo/model 2>/dev/null | tr -d '\n\r')"
 FIRMWARE="$(cat /etc/openwrt_release 2>/dev/null | grep DISTRIB_RELEASE | cut -d\' -f2 | tr -d '\n\r')"
@@ -76,6 +91,7 @@ wget -qO "$CHECK_JSON" "$CHECK_URL"
 
 if ! grep -q '"ok":true' "$CHECK_JSON"; then
   echo "Device not approved or invalid firmware."
+  echo "Device ID: $DEVICE_ID"
   cat "$CHECK_JSON"
   api_log "upgrade_denied" "Check failed"
   exit 1
